@@ -1,0 +1,462 @@
+@import 'tailwindcss';
+
+/*
+ * RockScreener.
+ *
+ * ONE THEME, AND IT IS DARK. There is no light mode and no toggle, and that is
+ * a decision rather than an omission: this screen is read at four in the
+ * morning next to a chart, the colour ramp that carries the five pillars is
+ * tuned to glow on near-black, and the same five hues on paper are illegible at
+ * the sizes a feed row uses. A second theme would be a second design to keep
+ * correct, and every ramp in it would be a compromise.
+ *
+ * THE PALETTE IS THE LOGO'S. The mark is a granite boulder drawn in nine greys
+ * from #9ea5ab down to #121214, and those nine greys ARE the surfaces, rules and
+ * text colours below. Lifting them out of the drawing rather than picking a
+ * neutral ramp beside it is the whole reason the interface looks like it
+ * belongs to this product: the cool cast in #9ea5ab is present in every panel
+ * edge on the screen, and nothing else would put it there.
+ *
+ * SOLANA'S TWO HUES ARE ACCENTS, NOT THE GROUND. Green for what the product
+ * concludes, purple for what the reader may do. Used on perhaps two percent of
+ * the pixels, which is why they read as signal on stone rather than as a
+ * gradient wallpaper with a table on top.
+ *
+ * TWO ACCENTS, WITH TWO JOBS, AND THEY MUST NOT BE SWAPPED.
+ *   --color-rock    Solana green (#14F195). Verdicts, tiers, gains, live state.
+ *                   It is what the product THINKS.
+ *   --color-action  Solana purple (#9945FF). Primary actions only: connect,
+ *                   buy, arm. It is what the reader can DO.
+ * A verdict painted in the action colour reads as a button; a button painted in
+ * the verdict colour reads as a claim.
+ */
+
+@theme {
+  /*
+   * THE TOKENS ARE SEMANTIC, NOT LITERAL. Nothing in the app names a colour —
+   * it names a ROLE. `--color-slab` is "the surface a card sits on". A
+   * component that reached for #131417 directly would be impossible to find
+   * again when the surface changes.
+   */
+  /*
+   * The stone, straight off the mark. `--color-void` is its deepest shadow
+   * (#121214) taken one step darker so the boulder still reads against the
+   * page; `--color-rule` and `--color-rule-faint` are two of its own facet
+   * lines; `--color-ash` and `--color-dim` are the greys it is lit and shaded
+   * with. The cast is cool and very slight, and it is the logo's, not a choice.
+   */
+  --color-void: #0b0c0d;
+  --color-bench: #0f1012;
+  --color-slab: #16181a;
+  --color-raised: #1d2023;
+  --color-sunk: #121314;
+
+  --color-rule: #363739;
+  --color-rule-faint: #232524;
+
+  --color-bone: #e9ecee;
+  --color-ash: #9ea5ab;
+  --color-dim: #696e72;
+
+  /* --- Solana green: what the product THINKS ------------------------------ */
+  --color-rock: #14f195;
+  --color-rock-bright: #5cffc0;
+  --color-rock-deep: #0a9c60;
+  --color-rock-wash: #14f1951a;
+
+  /* --- Solana purple: what the reader can DO ------------------------------ */
+  --color-action: #9945ff;
+  --color-action-ink: #ffffff;
+  --color-action-wash: #9945ff1f;
+
+  /* The third Solana hue, for the aurora and the wordmark alone. Never a
+     verdict, never a control — a screener with three accent colours has none. */
+  --color-cyan: #03e1ff;
+
+  /*
+   * THE TIER RAMP: a continuous walk from green through amber to red, so the
+   * colour alone orders the tiers without the reader learning a legend. It is
+   * never the only carrier of the grade — the number and the label sit beside
+   * it everywhere — because roughly one man in twelve cannot separate the
+   * middle three by hue.
+   */
+  --color-tier-diamond: #14f195;
+  --color-tier-solid: #a3e635;
+  --color-tier-rough: #e8b93c;
+  --color-tier-brittle: #f0793a;
+  --color-tier-dust: #f4556b;
+
+  --color-up: #14f195;
+  --color-down: #f4556b;
+  --color-warn: #e8b93c;
+
+  --font-display: var(--font-instrument), Georgia, serif;
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jet), ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --text-micro: 0.6875rem;
+  --text-tiny: 0.75rem;
+
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-pill: 999px;
+
+  /*
+   * The status line's height, named because THREE things depend on it: the bar
+   * itself, the sidebar that must stop above it, and the page shells that size
+   * themselves to what is left. As a repeated literal it becomes a real defect
+   * the first time the bar is pinned — the sidebar runs under it and its own
+   * Connect button stops being clickable.
+   */
+  --statusline: 30px;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: var(--color-void);
+    color: var(--color-bone);
+    font-family: var(--font-sans);
+  }
+
+  /* Grain: texture on a surface, at a strength you notice only by removing it. */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 100;
+    opacity: 0.017;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  ::selection {
+    background: var(--color-action);
+    color: var(--color-action-ink);
+  }
+
+  /*
+   * Numbers are compared down a column, so they are tabular wherever they
+   * appear — but NOT monospace. A mono face on every figure is what makes a
+   * product read as a readout rather than as an application; `tabular-nums` on
+   * a good sans gives the alignment without the typewriter. Mono is reserved
+   * for text that is genuinely machine written: mints, signatures, addresses.
+   */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum';
+    letter-spacing: -0.01em;
+  }
+
+  input[type='number'] {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* The scrollbar is furniture. It should not be the loudest thing on screen. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-rule);
+    border-radius: var(--radius-pill);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-dim);
+    background-clip: padding-box;
+  }
+}
+
+@layer components {
+  /*
+   * A CARD: three layers of light, all nearly invisible alone. A one-pixel
+   * highlight where the top edge catches, a definite line under it, and a wide
+   * soft occlusion beneath. Together they are the difference between a drawing
+   * of a card and a card.
+   */
+  .card {
+    background-color: var(--color-slab);
+    background-image: linear-gradient(180deg, #ffffff07, transparent 140px);
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-lg);
+    box-shadow:
+      inset 0 1px 0 #ffffff0a,
+      0 1px 2px #00000066,
+      0 20px 40px -28px #000000d9;
+  }
+
+  /*
+   * A LABEL. Plain small sans with ordinary tracking, kept dim so it recedes
+   * behind the value it names. Deliberately NOT 10px uppercase mono with wide
+   * tracking: that one rule, repeated a few hundred times a screen, is what
+   * turns an application into instrumentation.
+   */
+  .label {
+    font-size: var(--text-micro);
+    font-weight: 500;
+    letter-spacing: 0.01em;
+    color: var(--color-dim);
+  }
+
+  /* A hairline that fades at both ends. */
+  .rule-x {
+    background-image: linear-gradient(
+      90deg,
+      transparent,
+      var(--color-rule) 12%,
+      var(--color-rule) 88%,
+      transparent
+    );
+    height: 1px;
+  }
+
+  /* A segmented control: a pill with a filled thumb. */
+  .segment {
+    border-radius: var(--radius-pill);
+    background-color: var(--color-sunk);
+    border: 1px solid var(--color-rule-faint);
+    padding: 3px;
+  }
+}
+
+/*
+ * A strip that scrolls sideways with no bar showing.
+ *
+ * For the badge row on a feed row: the badges overflow, they must not be cut
+ * through the middle of a word, and the row cannot grow taller without breaking
+ * the one property a feed depends on — that a column of rows is an even column.
+ */
+.strip-x {
+  overflow-x: auto;
+  scrollbar-width: none;
+  /* Vertical gestures stay with the page, or the feed stops scrolling whenever
+     a thumb happens to start on a badge. */
+  touch-action: pan-y;
+  overscroll-behavior-x: contain;
+}
+.strip-x::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes cut-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes pulse-rock {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes facet-draw {
+  from {
+    stroke-dashoffset: var(--len, 400);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.animate-cut-in {
+  animation: cut-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.animate-pulse-rock {
+  animation: pulse-rock 1.6s ease-in-out infinite;
+}
+.animate-facet {
+  animation: facet-draw 900ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/*
+ * THE AURORA — deliberately restrained.
+ *
+ * The obvious version of this effect is three saturated blobs at high opacity,
+ * and it is obvious in both senses: everybody ships it, and it reads as
+ * decoration applied to a product rather than as the product's own light. So
+ * this one is built the other way round.
+ *
+ * THE LARGEST MASS IS STONE, NOT COLOUR. A cold slate grey (#3d4650, out of the
+ * same family as the mark) carries most of the effect; it gives the page depth
+ * without tinting a single number on it. The two Solana hues are present at a
+ * sixth of the strength and sit LOW and at the edges, so they are something you
+ * notice on a scroll rather than the first thing you see.
+ *
+ * SLOW, AND MUTUALLY PRIME. 53s, 67s and 79s, so the composition does not
+ * visibly loop; a fast aurora is a screensaver.
+ *
+ * FIXED, at z-index 0, so it does not slide about when a feed scrolls. Pure
+ * decoration, and it says so: `pointer-events: none`, `aria-hidden` at the call
+ * site, and the global reduced-motion rule at the foot of this file stops it.
+ */
+.aurora {
+  position: fixed;
+  inset: -25vmax;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+  /* Drawn far larger than the viewport and blurred hard, inside a clipped
+     oversized box — which is what stops the blur painting a bright seam along
+     the edges of the screen. */
+  filter: blur(110px) saturate(125%);
+  opacity: 1;
+}
+
+.aurora span {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  will-change: transform;
+}
+
+/* Stone. The mass that does the actual work. */
+.aurora span:nth-child(1) {
+  width: 78vmax;
+  height: 78vmax;
+  left: -14vmax;
+  top: -20vmax;
+  background: radial-gradient(circle at 50% 50%, #47525f 0%, #47525f00 64%);
+  opacity: 0.42;
+  animation: aurora-a 53s ease-in-out infinite alternate;
+}
+
+/* Green, low and to the right — near the score column, and nowhere near the
+   top of the page where the masthead has to stay legible. */
+.aurora span:nth-child(2) {
+  width: 52vmax;
+  height: 52vmax;
+  right: -16vmax;
+  bottom: -14vmax;
+  background: radial-gradient(circle at 50% 50%, #14f195 0%, #14f19500 62%);
+  opacity: 0.17;
+  animation: aurora-b 67s ease-in-out infinite alternate;
+}
+
+/* Purple, bottom-left, fainter still. It exists so the foot of a long feed is
+   not flat grey, and for no other reason. */
+.aurora span:nth-child(3) {
+  width: 46vmax;
+  height: 46vmax;
+  left: 6vmax;
+  bottom: -24vmax;
+  background: radial-gradient(circle at 50% 50%, #9945ff 0%, #9945ff00 62%);
+  opacity: 0.2;
+  animation: aurora-c 79s ease-in-out infinite alternate;
+}
+
+/*
+ * A vignette over the top of it all, in the ground colour.
+ *
+ * This is what keeps the effect from looking like a wallpaper: the corners fall
+ * back to the page's own black, so the light reads as coming from behind the
+ * interface rather than being printed on the same plane as it.
+ */
+.aurora::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 92% 82% at 50% 38%, transparent 42%, #0b0c0d 100%);
+}
+
+@keyframes aurora-a {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  to {
+    transform: translate3d(10vmax, 7vmax, 0) scale(1.12);
+  }
+}
+@keyframes aurora-b {
+  from {
+    transform: translate3d(0, 0, 0) scale(1.08);
+  }
+  to {
+    transform: translate3d(-9vmax, -8vmax, 0) scale(0.94);
+  }
+}
+@keyframes aurora-c {
+  from {
+    transform: translate3d(0, 0, 0) scale(0.96);
+  }
+  to {
+    transform: translate3d(11vmax, -7vmax, 0) scale(1.14);
+  }
+}
+
+/*
+ * Everything the reader actually reads sits above the aurora. One rule, applied
+ * to the app shell, rather than a z-index on each of forty components.
+ */
+.above-aurora {
+  position: relative;
+  z-index: 1;
+}
+
+/*
+ * The wordmark's gradient, and it is used ONCE — on the word "RockScreener" in
+ * the sidebar. A gradient that appears twice is a theme; a gradient that
+ * appears once is a signature.
+ *
+ * It runs stone -> green so the name starts in the logo's own colour and ends
+ * in the chain's, which is exactly what the product is.
+ */
+.sol-gradient-text {
+  background-image: linear-gradient(96deg, #dfe4e7 0%, #9ea5ab 42%, #14f195 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+
+/*
+ * THE MARK, ON A DARK GROUND.
+ *
+ * The logo is a granite boulder shaded from #9ea5ab down to #121214 — and
+ * #121214 is three points away from the surface it sits on, so the whole
+ * shadow side of the stone simply vanishes and the mark reads as a bright
+ * smear. Recolouring the file would be the wrong fix: it is the same drawing
+ * everywhere else, and a second version of a mark is a second mark.
+ *
+ * So it is LIT instead. A faint cool rim separates the dark facets from the
+ * panel behind them, and a small lift in brightness and contrast opens up the
+ * shaded half without touching the lit one.
+ */
+.mark-lit {
+  filter:
+    brightness(1.22) contrast(1.08)
+    drop-shadow(0 0 0.5px #9ea5ab88)
+    drop-shadow(0 1px 6px #00000080);
+}

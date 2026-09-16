@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.next/
+*.tsbuildinfo
+.env
+.env.local
+.DS_Store
+coverage/
+
+# The symlink is committed; its target is not.
+!apps/backend/.env

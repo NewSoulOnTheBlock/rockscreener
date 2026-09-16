@@ -1,0 +1,86 @@
+{
+  "$comment": "Thresholds, rates and ceilings. Kept OUT of the code so a tuning change is a config diff rather than a deploy of new logic, and out of the environment so it can be reviewed. Every credential it needs is referenced from process.env by name and never written here.",
+
+  "ingestion": {
+    "$comment": "Tens of thousands of mints are created a day and most never trade twice. These thresholds decide who gets the expensive pipeline.",
+    "activation": {
+      "minLiquidityUsd": 3000,
+      "minTxns24h": 25,
+      "$note": "Below both of these a token is a cheap SEEDED identity row: no security read, no holder sync, no scoring."
+    },
+    "dormantAfterHours": 72,
+    "pollIntervalMs": 6000,
+    "batchSize": 30,
+    "$batchNote": "DexScreener takes up to 30 comma-separated mints per request. Anything larger is silently truncated by them, which looks like missing tokens."
+  },
+
+  "sources": {
+    "dexscreener": { "minIntervalMs": 250, "timeoutMs": 12000 },
+    "rugcheck": { "minIntervalMs": 600, "timeoutMs": 15000, "cacheMinutes": 15 },
+    "jupiter": { "minIntervalMs": 120, "timeoutMs": 15000 },
+    "pumpfun": {
+      "minIntervalMs": 110,
+      "timeoutMs": 10000
+    },
+    "rpc": { "minIntervalMs": 60, "timeoutMs": 20000 }
+  },
+
+  "scoring": {
+    "intervalMs": 5000,
+    "batchSize": 40,
+    "rescoreAfterSeconds": 90,
+    "historyEpsilon": 1.5
+  },
+
+  "sellCheck": {
+    "$comment": "Two sources, in order. Observed sells beat a simulated route because they already happened.",
+    "observedWindowHours": 6,
+    "minDistinctSellers": 3,
+    "probeUsd": 250,
+    "maxImpactPct": 12,
+    "recheckMinutes": 20
+  },
+
+  "calls": {
+    "$comment": "A call is rare BY CONSTRUCTION. Every gate below has to pass.",
+    "intervalMs": 10000,
+    "minCoverage": 60,
+    "minLiquidityUsd": 15000,
+    "$mcapNote": "A gem finder that calls a token at a billion dollars has not made a claim anybody can act on — the move already happened. The ceiling is what keeps a call about something early; there is deliberately no MAXIMUM AGE, because a three-week-old token that finally clears the grade is exactly the call worth making.",
+    "maxMarketCapUsd": 5000000,
+    "minHolders": 150,
+    "minAgeSeconds": 300,
+    "$timingNote": "Of the first 79 calls, 41 never traded above their entry price. Every quality reading peaks when the price does, so a gate made only of quality thresholds fires at the top of the move by construction. These three are the veto on the MOMENT rather than on the token.",
+    "$backtest": "18,362 hypothetical entries replayed over 83 tokens that clear the quality gates (scripts/backtest.ts). Median return one hour after entry, by how far the price had already run in the hour before: calm 0-30% 0.998 and 0% of entries fell 20%; hot 80-150% 0.886 and 41% fell 20%; ran 150-400% 0.783 and 58% fell; vertical >400% 0.528 and 82% fell. The first draft of these ceilings was 120% and 20%, which the sweep showed would have refused essentially nothing. They are set where the damage measurably begins, not where they look prudent.",
+    "$fiveMinuteNote": "25, not the 10 first set from a single run. Two independent backtest windows disagreed about the 10-25% band — one put its median at 0.902, the other at 0.997 — on samples of 149 and 91 entries. They AGREED about 25-60%: 0.893 and 0.839, with 45% and 48% of entries down a fifth an hour later. The ceiling goes where both runs agree, not where one of them looked worse.",
+    "maxPriceChange5m": 25,
+    "maxPriceChange1h": 80,
+    "$volumeNote": "Lowered from 4,000 because the backtest showed that floor refusing a third of all entries with NO improvement in their outcome. It is kept at all for a reason the backtest cannot see: this is about being able to EXIT a position, not about predicting a return. The sell check tests that properly at size; this is the cheap indexable version of the same worry.",
+    "minVolume1hUsd": 1500,
+    "requireLaunchAnalyzed": true,
+    "requireSellConfirmed": true,
+    "rearmHours": 12,
+    "trackHours": 168,
+    "stagnantAfterMinutes": 25,
+    "invalidateBelowScore": 45,
+    "ruggedLiquidityDrop": 0.8,
+    "sparkPoints": 26
+  },
+
+  "autotrade": {
+    "enabled": true,
+    "allowEntries": true,
+    "entryTickMs": 6000,
+    "exitTickMs": 3000,
+    "$tickNote": "Exits run at twice the rate of entries. A missed entry costs an opportunity; a missed exit costs the position.",
+    "maxOpenPositionsGlobal": 200,
+    "candidatesPerTick": 25,
+    "callFreshnessSeconds": 900,
+    "gateCacheSeconds": 120
+  },
+
+  "gate": {
+    "requiredUsd": 500,
+    "$note": "Dollar value of ROCK an account must hold to arm the engine. ROCK_MINT overrides the mint; this is the line."
+  }
+}

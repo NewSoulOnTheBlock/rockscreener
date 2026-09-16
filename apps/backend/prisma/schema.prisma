@@ -1,0 +1,429 @@
+// RockScreener — the store.
+//
+// TWO RULES SHAPE EVERY COLUMN HERE.
+//
+// 1. A READING NOBODY TOOK IS NULL. Every measured field below is nullable, and
+//    that is not laziness about defaults — it is the discipline the whole
+//    product rests on. `top10_pct` defaulting to 0 would mean a token whose
+//    holder table has never been read is indistinguishable from one with a
+//    perfectly flat distribution, and the scorer would publish a confident
+//    number built on a fact nobody established. Counts that we ourselves
+//    maintain (`txns_24h`) default to 0, because there we KNOW the answer.
+//
+// 2. THE SCORE IS DERIVED AND STORED. It is written back onto the token row
+//    rather than joined from a scores table, because the screener sorts and
+//    filters on it on every request and a join there is the difference between
+//    a 4ms query and a 400ms one. `score_history` keeps the trail.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// One SPL mint, and everything we have learned about it.
+model Token {
+  /// The mint address, base58. The natural key everywhere in this product.
+  mint String @id
+
+  // --- identity ----------------------------------------------------------
+  name      String  @default("")
+  symbol    String  @default("")
+  /// `named` | `pending` | `unreadable`. See NameState in @rockscreener/shared.
+  nameState String  @default("pending") @map("name_state")
+  imageUrl  String? @map("image_url")
+  /// The Metaplex metadata URI, as published by the token itself.
+  ///
+  /// Stored because it is the POINTER rather than the picture: re-deriving it
+  /// is an RPC round trip, and having it lets the image be re-fetched later
+  /// without one. Null means the metadata account has not been read yet.
+  metadataUri String? @map("metadata_uri")
+  /// Set once the metadata account has been read, successfully or not, so the
+  /// worker does not walk the same unreadable mints forever.
+  metadataReadAt DateTime? @map("metadata_read_at")
+  /// Set once pump.fun's own API has been asked about this mint, successfully
+  /// or not.
+  ///
+  /// A SEPARATE STAMP FROM `metadataReadAt` BECAUSE THEY ANSWER DIFFERENT
+  /// QUESTIONS. pump.fun creates no Metaplex account, so the on-chain pass
+  /// legitimately records "read, nothing there" for most of this index — and if
+  /// the two shared a column, that stamp would also mean "pump.fun was asked",
+  /// which it was not, and nine thousand tokens would keep their blank picture
+  /// forever with nothing in the database saying why.
+  pumpReadAt DateTime? @map("pump_read_at")
+  /// Whoever the launchpad reported as the creator. Lowercase never applied —
+  /// base58 is case-significant.
+  creator   String?
+  launchpad String  @default("unknown")
+  decimals  Int     @default(6)
+  /// Raw base units. A uint64 supply does not fit a double, so it is a string.
+  totalSupply String? @map("total_supply")
+
+  description String?
+  websiteUrl  String? @map("website_url")
+  twitterUrl  String? @map("twitter_url")
+  telegramUrl String? @map("telegram_url")
+
+  // --- lifecycle ----------------------------------------------------------
+  /// DORMANT | SEEDED | ACTIVE | GRADUATED — how much of the pipeline it gets.
+  tier           String    @default("SEEDED")
+  /// BONDING | MIGRATED
+  status         String    @default("BONDING")
+  launchTime     DateTime  @map("launch_time")
+  migratedAt     DateTime? @map("migrated_at")
+  lastActivityAt DateTime? @map("last_activity_at")
+  firstSeenAt    DateTime  @default(now()) @map("first_seen_at")
+  /// Curve progress in basis points, 0..10000.
+  ///
+  /// NULL means the curve account has not been read — which is not the same as
+  /// a curve that is empty, and the difference is a chip on a card reading "0%"
+  /// versus reading nothing at all. Set to 0 only once the token has migrated,
+  /// where there is genuinely no curve left.
+  progressBps    Int?      @map("progress_bps")
+
+  // --- market, from DexScreener ------------------------------------------
+  priceUsd      Float? @map("price_usd")
+  priceSol      Float? @map("price_sol")
+  marketCapUsd  Float? @map("market_cap_usd")
+  fdvUsd        Float? @map("fdv_usd")
+  liquidityUsd  Float? @map("liquidity_usd")
+  poolAddress   String? @map("pool_address")
+  dexId         String? @map("dex_id")
+  marketCount   Int    @default(0) @map("market_count")
+
+  volume5mUsd  Float @default(0) @map("volume_5m_usd")
+  volume1hUsd  Float @default(0) @map("volume_1h_usd")
+  volume6hUsd  Float @default(0) @map("volume_6h_usd")
+  volume24hUsd Float @default(0) @map("volume_24h_usd")
+
+  priceChange5m  Float @default(0) @map("price_change_5m")
+  priceChange1h  Float @default(0) @map("price_change_1h")
+  priceChange6h  Float @default(0) @map("price_change_6h")
+  priceChange24h Float @default(0) @map("price_change_24h")
+
+  buys24h  Int @default(0) @map("buys_24h")
+  sells24h Int @default(0) @map("sells_24h")
+  txns24h  Int @default(0) @map("txns_24h")
+  /// Distinct wallets. NULL when nothing has computed it — not zero.
+  traders24h Int? @map("traders_24h")
+
+  allTimeHighUsd Float?    @map("all_time_high_usd")
+  allTimeHighAt  DateTime? @map("all_time_high_at")
+
+  // --- the mint account, read on chain ------------------------------------
+  /// NULL = the mint account has never been read. FALSE = read, still live.
+  mintAuthorityRevoked   Boolean? @map("mint_authority_revoked")
+  freezeAuthorityRevoked Boolean? @map("freeze_authority_revoked")
+  metadataMutable        Boolean? @map("metadata_mutable")
+  /// Token-2022 transfer fee, basis points. NULL when unread; 0 is a reading.
+  transferFeeBps         Int?     @map("transfer_fee_bps")
+  mintReadAt             DateTime? @map("mint_read_at")
+
+  // --- security, from RugCheck -------------------------------------------
+  rugcheckScore    Int?      @map("rugcheck_score")
+  /// Top ten holders with AMM vaults, lockers and burn excluded.
+  top10Pct         Float?    @map("top10_pct")
+  creatorPct       Float?    @map("creator_pct")
+  holderCount      Int?      @map("holder_count")
+  lpLockedPct      Float?    @map("lp_locked_pct")
+  lpLockedUsd      Float?    @map("lp_locked_usd")
+  /// Supply held by wallets RugCheck's graph links to one funder.
+  insiderPct       Float?    @map("insider_pct")
+  insiderNetworks  Int?      @map("insider_networks")
+  rugged           Boolean?
+  /// The raw risk list, kept so a finding can cite what it came from.
+  risks            Json?
+  securityReadAt   DateTime? @map("security_read_at")
+  /// Top holders as RugCheck reported them, for the holders panel.
+  holders          Json?
+
+  // --- the sell check -----------------------------------------------------
+  /// NULL IS NOT A PASS. See SellCheck in @rockscreener/shared.
+  sellOk            Boolean?  @map("sell_ok")
+  sellVia           String?   @map("sell_via")
+  sellImpactPct     Float?    @map("sell_impact_pct")
+  sellTaxBps        Int?      @map("sell_tax_bps")
+  sellCheckedAt     DateTime? @map("sell_checked_at")
+
+  // --- the launch analysis ------------------------------------------------
+  launchAnalyzed   Boolean   @default(false) @map("launch_analyzed")
+  bundledPct       Float?    @map("bundled_pct")
+  bundleWallets    Int?      @map("bundle_wallets")
+  sniperPct        Float?    @map("sniper_pct")
+  sniperWallets    Int?      @map("sniper_wallets")
+  clusteredPct     Float?    @map("clustered_pct")
+  clusters         Int?
+  stillHeldPct     Float?    @map("still_held_pct")
+  creatorLinkedPct Float?    @map("creator_linked_pct")
+  bundleSlot       BigInt?   @map("bundle_slot")
+  launchSlot       BigInt?   @map("launch_slot")
+  launchReadAt     DateTime? @map("launch_read_at")
+  /// When the bonding curve account was last read.
+  ///
+  /// THE QUEUE ORDERS ON THIS, and that is the whole reason it exists. Without
+  /// it the curve pass ordered by `lastActivityAt`, which a failed read does not
+  /// touch — so the hundred tokens whose curve account does not exist came back
+  /// on every single tick and no token behind them was ever reached.
+  curveReadAt      DateTime? @map("curve_read_at")
+
+  // --- DexScreener paid products -----------------------------------------
+  /// Tri-state: NULL means never asked, which for a new token is normal.
+  dexPaid      Boolean?  @map("dex_paid")
+  dexPaidTypes String[]  @default([]) @map("dex_paid_types")
+  boosts       Int       @default(0)
+  dexCheckedAt DateTime? @map("dex_checked_at")
+
+  // --- the grade, written back for sorting --------------------------------
+  score       Float?    
+  tier_       String?   @map("score_tier")
+  coverage    Int?
+  topWarning  String?   @map("top_warning")
+  pillars     Json?
+  findings    Json?
+  clamped     Json?
+  scoredAt    DateTime? @map("scored_at")
+  /// Score at the previous computation, for the delta arrow.
+  prevScore   Float?    @map("prev_score")
+
+  calls        Call[]
+  scoreHistory ScoreHistory[]
+  positions    AutoPosition[]
+
+  @@index([tier, lastActivityAt(sort: Desc)])
+  @@index([score(sort: Desc)])
+  @@index([launchTime(sort: Desc)])
+  @@index([status, progressBps(sort: Desc)])
+  @@index([migratedAt(sort: Desc)])
+  @@index([creator])
+  @@index([scoredAt])
+  @@map("tokens")
+}
+
+/// The trail of a token's grade, thinned by GEM_HISTORY_EPSILON.
+model ScoreHistory {
+  id       BigInt   @id @default(autoincrement())
+  mint     String
+  score    Float
+  coverage Int
+  at       DateTime @default(now())
+
+  token Token @relation(fields: [mint], references: [mint], onDelete: Cascade)
+
+  @@index([mint, at(sort: Desc)])
+  @@map("score_history")
+}
+
+/// A CALL: a moment, not an opinion. See signal.ts in @rockscreener/shared.
+model Call {
+  id   String @id @default(cuid())
+  mint String
+  /// strong_buy | buy | watch
+  tier String
+
+  score    Float
+  coverage Int
+  headline String?
+
+  calledAt           DateTime @default(now()) @map("called_at")
+  entryPriceUsd      Float    @map("entry_price_usd")
+  entryMarketCapUsd  Float    @map("entry_market_cap_usd")
+  entryLiquidityUsd  Float    @map("entry_liquidity_usd")
+
+  peakPriceUsd     Float     @map("peak_price_usd")
+  peakMarketCapUsd Float     @map("peak_market_cap_usd")
+  peakAt           DateTime? @map("peak_at")
+  lastPriceUsd     Float     @map("last_price_usd")
+  lastMarketCapUsd Float     @map("last_market_cap_usd")
+  /// Lowest price seen since the call, for the drawdown. Never shown raw.
+  troughPriceUsd   Float     @map("trough_price_usd")
+
+  /// live | invalidated | rugged | settled
+  outcome     String    @default("live")
+  closedAt    DateTime? @map("closed_at")
+  closeReason String?   @map("close_reason")
+
+  /// Multiples of the entry price, appended on each tick. Drives the sparkline.
+  spark Float[] @default([])
+
+  token     Token          @relation(fields: [mint], references: [mint], onDelete: Cascade)
+  positions AutoPosition[]
+
+  /// ONE CALL PER TOKEN PER TIER. A token that strengthens from buy to
+  /// strong_buy earns a second row — those are two claims at two prices — but a
+  /// token wobbling across one threshold gets one.
+  @@unique([mint, tier])
+  @@index([calledAt(sort: Desc)])
+  @@index([outcome, calledAt(sort: Desc)])
+  @@map("calls")
+}
+
+/// An account. One row whether they arrived by wallet or by Telegram.
+model User {
+  id String @id @default(cuid())
+
+  /// The Solana address they signed in with, when they signed in that way.
+  walletAddress String? @unique @map("wallet_address")
+  telegramId    String? @unique @map("telegram_id")
+  telegramUsername String? @map("telegram_username")
+  displayName   String? @map("display_name")
+  avatarUrl     String? @map("avatar_url")
+
+  isAdmin   Boolean  @default(false) @map("is_admin")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  /// Cached gate result, so an entry tick does not re-read the chain per token.
+  gateCheckedAt DateTime? @map("gate_checked_at")
+  gateHeldUsd   Float?    @map("gate_held_usd")
+  gateUnlocked  Boolean   @default(false) @map("gate_unlocked")
+
+  wallets       TradingWallet[]
+  linkedWallets LinkedWallet[]
+  settings      AutoSettings?
+  positions     AutoPosition[]
+  events        AutoEvent[]
+
+  @@map("users")
+}
+
+/// A custodial wallet the engine spends from.
+model TradingWallet {
+  id     String @id @default(cuid())
+  userId String @map("user_id")
+
+  address String @unique
+  label   String?
+  /// AES-256-GCM, under WALLET_MASTER_KEY. Never returned by any endpoint.
+  encryptedKey String @map("encrypted_key")
+  isDefault    Boolean @default(false) @map("is_default")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("trading_wallets")
+}
+
+/// A wallet somebody PROVED they control. Read-only, forever.
+///
+/// It exists so ROCK already held counts toward the gate without being moved.
+/// Nothing in this system can send a lamport out of one of these: there is no
+/// key column here, and there never will be.
+model LinkedWallet {
+  id       String   @id @default(cuid())
+  userId   String   @map("user_id")
+  address  String
+  verifiedAt DateTime @default(now()) @map("verified_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, address])
+  @@index([address])
+  @@map("linked_wallets")
+}
+
+/// One user's auto-trade rules.
+///
+/// `enabled`, `walletId` and the disarm columns are their own columns rather
+/// than living in `rules` because the engine reads them on every tick and
+/// writes `enabled = false` from inside a transaction when the daily cap trips.
+/// A JSON blob would make that a read-modify-write race between the engine and
+/// whatever the user is doing in the settings form.
+model AutoSettings {
+  userId String @id @map("user_id")
+
+  enabled    Boolean @default(false)
+  walletId   String? @map("wallet_id")
+  /// Everything else, validated by AutoTradeRulesSchema before it lands here.
+  rules      Json
+
+  disarmedAt     DateTime? @map("disarmed_at")
+  disarmedReason String?   @map("disarmed_reason")
+
+  /// Rolling-hour spend, in lamports as a string. Reset by the engine.
+  spentThisHour  String   @default("0") @map("spent_this_hour")
+  hourStartedAt  DateTime @default(now()) @map("hour_started_at")
+  /// Realised PnL today, lamports, signed.
+  realizedToday  String   @default("0") @map("realized_today")
+  dayStartedAt   DateTime @default(now()) @map("day_started_at")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([enabled])
+  @@map("auto_settings")
+}
+
+/// A position the engine opened and is responsible for.
+model AutoPosition {
+  id     String @id @default(cuid())
+  userId String @map("user_id")
+  mint   String
+  callId String? @map("call_id")
+
+  /// opening | open | closing | closed | failed
+  status String @default("opening")
+
+  /// The buy's signature, written as soon as it is broadcast.
+  ///
+  /// THIS IS THE ONLY HANDLE ON A TRADE WHOSE FATE IS UNKNOWN. A send that
+  /// times out may still land, and a position written off as `failed` without
+  /// its signature is a bag of tokens in a real wallet that nothing in this
+  /// system is responsible for selling. With it, the reconcile pass can ask the
+  /// chain what happened however long afterwards.
+  openSignature String?   @map("open_signature")
+  /// When that broadcast went out, so reconcile can tell a trade still settling
+  /// from one that has been stuck for an hour.
+  openSentAt    DateTime? @map("open_sent_at")
+
+  spentLamports    String @default("0") @map("spent_lamports")
+  receivedLamports String @default("0") @map("received_lamports")
+  /// Token base units still held.
+  amount           String @default("0")
+  decimals         Int    @default(6)
+
+  entryPriceUsd Float  @map("entry_price_usd")
+  highPriceUsd  Float  @map("high_price_usd")
+  lastPriceUsd  Float  @map("last_price_usd")
+  entryScore    Float  @map("entry_score")
+  /// Liquidity at entry, so a collapse can be measured against it.
+  entryLiquidityUsd Float @default(0) @map("entry_liquidity_usd")
+
+  filledSteps Int[]    @default([]) @map("filled_steps")
+  openedAt    DateTime @default(now()) @map("opened_at")
+  closedAt    DateTime? @map("closed_at")
+  closeReason String?  @map("close_reason")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token Token @relation(fields: [mint], references: [mint], onDelete: Cascade)
+  call  Call? @relation(fields: [callId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@index([status])
+  @@index([userId, mint, closedAt(sort: Desc)])
+  @@map("auto_positions")
+}
+
+/// Everything the engine did — INCLUDING everything it refused to do.
+model AutoEvent {
+  id     BigInt   @id @default(autoincrement())
+  userId String   @map("user_id")
+  at     DateTime @default(now())
+
+  /// considered | skipped | bought | sold | failed | disarmed
+  kind      String
+  mint      String?
+  symbol    String?
+  /// The rule that decided this, e.g. `entry.maxBundledPct`.
+  rule      String?
+  message   String
+  signature String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, at(sort: Desc)])
+  @@map("auto_events")
+}

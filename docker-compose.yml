@@ -1,0 +1,182 @@
+# ---------------------------------------------------------------------------
+# RockScreener — the whole stack.
+#
+#   docker compose up -d postgres redis        the development shape: the data
+#                                              stores in containers, the four
+#                                              Node processes on the host.
+#   docker compose --profile app up -d --build everything.
+#
+# THE PORTS ARE DELIBERATELY NOT THE DEFAULTS. This machine runs other indexers
+# that also want a Postgres called `tokens` and a Redis full of leaderboards,
+# and sharing either would mean two pipelines writing the same rows.
+# ---------------------------------------------------------------------------
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: rock-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rock
+      POSTGRES_PASSWORD: rock
+      POSTGRES_DB: rockscreener
+    ports:
+      - '5440:5432'
+    volumes:
+      - rock-pg:/var/lib/postgresql/data
+    command:
+      - postgres
+      # The screener is read-heavy over a large, heavily-indexed table and the
+      # defaults assume a much smaller working set. Tune to the host.
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=2GB
+      - -c
+      - work_mem=24MB
+      - -c
+      - maintenance_work_mem=256MB
+      # The token table is on SSD; the default 4.0 makes the planner prefer
+      # sequential scans over the indexes the screener depends on.
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - max_connections=120
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U rock -d rockscreener']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: rock-redis
+    restart: unless-stopped
+    ports:
+      - '6390:6379'
+    volumes:
+      - rock-redis:/data
+    command:
+      - redis-server
+      # Redis holds response caches, rate-limit windows and sign-in challenges —
+      # all reconstructible or short-lived — so eviction beats an OOM.
+      - --maxmemory
+      - 512mb
+      - --maxmemory-policy
+      - allkeys-lru
+      - --save
+      - ''
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # --- the four processes. One image, four entrypoints. --------------------
+  #
+  # Each service differs only in its command, because everything else about
+  # them is identical by construction — see the note at the top of the backend
+  # Dockerfile for why they are one build rather than four.
+
+  api:
+    profiles: ['app']
+    build: { context: ., dockerfile: apps/backend/Dockerfile }
+    image: rockscreener-backend
+    container_name: rock-api
+    restart: unless-stopped
+    command: ['node', 'dist/gateway.js']
+    env_file: [.env]
+    environment:
+      # Inside the compose network the stores answer on their service names and
+      # their own ports, not the host mappings above.
+      DATABASE_URL: postgresql://rock:rock@postgres:5432/rockscreener?schema=public
+      REDIS_URL: redis://redis:6379
+    ports:
+      - '4040:4040'
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:4040/health || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  indexer:
+    profiles: ['app']
+    build: { context: ., dockerfile: apps/backend/Dockerfile }
+    image: rockscreener-backend
+    container_name: rock-indexer
+    restart: unless-stopped
+    command: ['node', 'dist/indexer.js']
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql://rock:rock@postgres:5432/rockscreener?schema=public
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  scorer:
+    profiles: ['app']
+    build: { context: ., dockerfile: apps/backend/Dockerfile }
+    image: rockscreener-backend
+    container_name: rock-scorer
+    restart: unless-stopped
+    command: ['node', 'dist/scorer.js']
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql://rock:rock@postgres:5432/rockscreener?schema=public
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  trader:
+    profiles: ['app']
+    build: { context: ., dockerfile: apps/backend/Dockerfile }
+    image: rockscreener-backend
+    container_name: rock-trader
+    restart: unless-stopped
+    command: ['node', 'dist/trader.js']
+    env_file: [.env]
+    environment:
+      DATABASE_URL: postgresql://rock:rock@postgres:5432/rockscreener?schema=public
+      REDIS_URL: redis://redis:6379
+    # EXACTLY ONE OF THESE. It holds custodial keys and broadcasts trades; two
+    # replicas would race to sell the same position. The Redis lock enforces it
+    # at runtime — this is the same statement at the orchestration layer.
+    deploy:
+      replicas: 1
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  web:
+    profiles: ['app']
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      # BUILD args, not runtime environment. `NEXT_PUBLIC_*` is inlined into the
+      # client bundle by the compiler, so a value supplied at `docker run`
+      # arrives long after the code that would have read it was written to disk —
+      # the browser then calls a relative path that does not exist, and the page
+      # looks like an API outage.
+      #
+      # These are the addresses the BROWSER uses, which is why they are
+      # localhost rather than the compose service name: the requests are made
+      # from the user's machine, where `api` resolves to nothing.
+      args:
+        NEXT_PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:4040}
+        NEXT_PUBLIC_TELEGRAM_BOT: ${NEXT_PUBLIC_TELEGRAM_BOT:-}
+    image: rockscreener-web
+    container_name: rock-web
+    restart: unless-stopped
+    ports:
+      - '3040:3040'
+    depends_on:
+      api: { condition: service_healthy }
+
+volumes:
+  rock-pg:
+  rock-redis:

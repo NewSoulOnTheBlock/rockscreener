@@ -1,0 +1,27 @@
+{
+  "name": "rockscreener",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "dev:api": "pnpm --filter @rockscreener/backend dev:api",
+    "dev:indexer": "pnpm --filter @rockscreener/backend dev:indexer",
+    "dev:scorer": "pnpm --filter @rockscreener/backend dev:scorer",
+    "dev:trader": "pnpm --filter @rockscreener/backend dev:trader",
+    "dev:web": "pnpm --filter @rockscreener/web dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "db:setup": "pnpm --filter @rockscreener/backend db:setup",
+    "infra:up": "docker compose up -d postgres redis",
+    "infra:down": "docker compose down",
+    "stack:up": "docker compose --profile app up -d --build",
+    "stack:logs": "docker compose logs -f api indexer scorer trader"
+  },
+  "devDependencies": { "typescript": "^5.9.3" },
+  "packageManager": "pnpm@10.11.0",
+  "pnpm": {
+    "onlyBuiltDependencies": ["@prisma/client", "@prisma/engines", "prisma", "esbuild", "bufferutil", "utf-8-validate"]
+  }
+}
