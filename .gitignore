@@ -7,5 +7,9 @@ dist/
 .DS_Store
 coverage/
 
-# The symlink is committed; its target is not.
+.vercel
+.env*
+
+# The symlink is committed; its target is not. It must be re-included AFTER
+# the .env* rule above, or the later pattern wins and the link stops tracking.
 !apps/backend/.env
